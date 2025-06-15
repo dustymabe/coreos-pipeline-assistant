@@ -4,8 +4,7 @@ from typing import Optional, List
 from enum import Enum
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from pydantic_ai import Agent
-from pydantic_ai import agent
+from pydantic_ai import Agent, agent
 from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
 import logging
@@ -18,16 +17,14 @@ from collections import OrderedDict
 logging.basicConfig(level=logging.INFO)
 
 
-# initialize Slack, Gemini, and Jenkins
+# initialize Slack, and Jenkins
 slack_app = App(token=os.getenv("SLACK_BOT_TOKEN"))
 
 jenkins_server = Jenkins(url=os.environ["JENKINS_URL"],
                          token=os.environ["JENKINS_TOKEN"])
 
 
-
-
-# system instruction we pass to Gemini
+# system instruction we pass to the LLM
 system_instruction = """
 You are a member of the CoreOS team, tasked with monitoring the Jenkins
 pipeline which builds, tests, and releases RHEL CoreOS artifacts. Users will
@@ -37,6 +34,26 @@ best of your ability using the tools at your disposal. You are friendly but
 succinct.
 """
 
+# Initialize the LLM with pydantic. Either Gemini directly or OpenRouter:
+#
+## export GEMINI_API_KEY=your-api-key
+# from pydantic_ai.models.gemini import GeminiModel
+# model = GeminiModel('gemini-2.0-flash', provider='google-gla')
+#
+## export OPENROUTER_API_KEY=your-api-key
+from pydantic_ai.models.openai import OpenAIModel
+from pydantic_ai.providers.openrouter import OpenRouterProvider
+model = OpenAIModel(
+    'gemini-2.5-flash-preview-05-20',
+    provider=OpenRouterProvider(api_key=os.environ.get('OPENROUTER_API_KEY'))
+)
+agent = Agent(
+    system_prompt=system_instruction,
+    model=model,
+    # I don't think these are needed, because we used the decorators
+    # https://ai.pydantic.dev/tools/
+    # tools=[get_associated_jenkins_build, get_jenkins_build_logs, get_pipeline_status, retry_jenkins_build],
+)
 
 class BuildResult(str, Enum):
     SUCCESS = "SUCCESS"
@@ -299,16 +316,6 @@ def retry_jenkins_build(job_name: str, build_number: int) -> str:
     return jenkins_server.retry_build(job_name, build_number)
 
 
-
-
-
-agent = Agent(
-    system_prompt=system_instruction,
-    model="gpt-4o",
-    # I don't think these are needed, because we used the decorators
-    # https://ai.pydantic.dev/tools/
-    # tools=[get_associated_jenkins_build, get_jenkins_build_logs, get_pipeline_status, retry_jenkins_build],
-)
 
 @slack_app.event("app_mention")
 def handle_app_mention_events(body, logger, say):
