@@ -192,6 +192,7 @@ def get_jenkins_build_logs(job_name: str, build_number: int) -> str:
         return f"Error fetching Jenkins logs: {e}"
 
 
+@agent.tool
 def get_list_of_builds_for_job(job_name: str) -> List[Build]:
     """Gets the list of builds for a given Jenkins job.
 
@@ -304,7 +305,9 @@ def retry_jenkins_build(job_name: str, build_number: int) -> str:
 agent = Agent(
     system_prompt=system_instruction,
     model="gpt-4o",
-    tools=[get_associated_jenkins_build, get_jenkins_build_logs, get_pipeline_status, retry_jenkins_build],
+    # I don't think these are needed, because we used the decorators
+    # https://ai.pydantic.dev/tools/
+    # tools=[get_associated_jenkins_build, get_jenkins_build_logs, get_pipeline_status, retry_jenkins_build],
 )
 
 @slack_app.event("app_mention")
