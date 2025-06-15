@@ -4,8 +4,8 @@ from typing import Optional, List
 from enum import Enum
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from google import genai
-from google.genai import types
+from pydantic_ai import Agent
+from pydantic_ai import agent
 from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
 import logging
@@ -20,11 +20,11 @@ logging.basicConfig(level=logging.INFO)
 
 # initialize Slack, Gemini, and Jenkins
 slack_app = App(token=os.getenv("SLACK_BOT_TOKEN"))
-gemini_client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+
 jenkins_server = Jenkins(url=os.environ["JENKINS_URL"],
                          token=os.environ["JENKINS_TOKEN"])
 
-thread_chats: OrderedDict[str, genai.chats.Chat] = OrderedDict()
+
 
 
 # system instruction we pass to Gemini
@@ -89,6 +89,7 @@ class StreamBuild:
     status: Optional[StreamStatus] = None
 
 
+@agent.tool
 def get_associated_jenkins_build(channel: str, thread_ts: Optional[str] = None) -> Build:
     """Gets the Jenkins build that is best associated with a user query.
 
@@ -172,6 +173,7 @@ def get_associated_jenkins_build(channel: str, thread_ts: Optional[str] = None) 
     )
 
 
+@agent.tool
 def get_jenkins_build_logs(job_name: str, build_number: int) -> str:
     """Gets the Jenkins logs for a given Jenkins build.
 
@@ -234,6 +236,7 @@ def get_list_of_builds_for_job(job_name: str) -> List[Build]:
         return []
 
 
+@agent.tool
 def get_pipeline_status() -> OrderedDict[str, StreamBuild]:
     """Gets the status of the Jenkins pipeline.
 
@@ -280,6 +283,7 @@ def get_pipeline_status() -> OrderedDict[str, StreamBuild]:
     return sorted_status
 
 
+@agent.tool
 def retry_jenkins_build(job_name: str, build_number: int) -> str:
     """Retries a specific Jenkins build.
 
@@ -294,17 +298,14 @@ def retry_jenkins_build(job_name: str, build_number: int) -> str:
     return jenkins_server.retry_build(job_name, build_number)
 
 
-# Now that we're defined all the utility functions, let's set up the Gemini
-# config! This doesn't need to be global, but it's basically not going to change
-# for the duration of this execution.
-gemini_config = types.GenerateContentConfig(
-    tools=[get_associated_jenkins_build,
-           get_jenkins_build_logs,
-           get_pipeline_status,
-           retry_jenkins_build],
-    system_instruction=system_instruction,
-)
 
+
+
+agent = Agent(
+    system_prompt=system_instruction,
+    model="gpt-4o",
+    tools=[get_associated_jenkins_build, get_jenkins_build_logs, get_pipeline_status, retry_jenkins_build],
+)
 
 @slack_app.event("app_mention")
 def handle_app_mention_events(body, logger, say):
@@ -330,28 +331,9 @@ def handle_app_mention_events(body, logger, say):
         logger.info("got empty command; ignoring...")
         return
 
-    # If in a thread, manage chat history using the global thread_chats dict.
-    # Otherwise, create a new chat for single messages.
-    if thread_ts:
-        if thread_ts not in thread_chats:
-            # Remove oldest if dict size exceeds 30
-            if len(thread_chats) >= 30:
-                thread_chats.popitem(last=False)
-            thread_chats[thread_ts] = gemini_client.chats.create(
-                model="gemini-2.5-flash-preview-05-20",
-                config=gemini_config,
-            )
-        chat = thread_chats[thread_ts]
-    else:
-        chat = gemini_client.chats.create(
-            model="gemini-2.5-flash-preview-05-20",
-            config=gemini_config,
-        )
+    response = agent.run(user_prompt)
 
-    # Send the user's message to the appropriate chat
-    response = chat.send_message(pre_prompt + strip_userid(event['text']))
-
-    say(text=response.text, thread_ts=thread_ts or event["ts"])
+    say(text=response, thread_ts=thread_ts or event["ts"])
     slack_app.client.reactions_remove(channel=channel, name='hourglass_flowing_sand', timestamp=event["ts"])
 
 
