@@ -361,10 +361,10 @@ def handle_app_mention_events(body, logger, say):
     chat_platform.remove_reaction(channel=channel, name='hourglass_flowing_sand', timestamp=event["ts"])
 
 
-# Convert '<@USERID> msg' to 'msg'
+# Convert '<@USERID> msg' to 'msg' (Slack) or '@user:matrix.org msg' to 'msg' (Matrix)
 def strip_userid(msg: str):
     elems = msg.split(' ', 1)
-    if not elems[0].startswith('<@'):
+    if not elems[0].startswith('<@') and not elems[0].startswith('@'):
         return msg.strip()
     if len(elems) > 1:
         return elems[1].strip()
