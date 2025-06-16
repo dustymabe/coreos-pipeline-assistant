@@ -57,4 +57,33 @@ class SlackPlatform(ChatPlatform):
         return result["messages"]
 
 
+class MatrixPlatform(ChatPlatform):
+    def __init__(self, homeserver_url: str, access_token: str):
+        self.homeserver_url = homeserver_url
+        self.access_token = access_token
+        # TODO: Initialize Matrix client here
 
+    def send_message(self, channel: str, text: str, thread_ts: Optional[str] = None):
+        # TODO: Implement Matrix send_message
+        print(f"Matrix: Sending message to {channel}: {text} (thread_ts: {thread_ts})")
+        pass
+
+    def add_reaction(self, channel: str, name: str, timestamp: str):
+        # TODO: Implement Matrix add_reaction
+        print(f"Matrix: Adding reaction {name} to {channel} at {timestamp}")
+        pass
+
+    def remove_reaction(self, channel: str, name: str, timestamp: str):
+        # TODO: Implement Matrix remove_reaction
+        print(f"Matrix: Removing reaction {name} from {channel} at {timestamp}")
+        pass
+
+    def get_message(self, channel: str, timestamp: str) -> Dict[str, Any]:
+        # TODO: Implement Matrix get_message
+        print(f"Matrix: Getting message from {channel} at {timestamp}")
+        return {}
+
+    def get_channel_history(self, channel: str, latest: Optional[str] = None, inclusive: bool = False, limit: int = 1) -> List[Dict[str, Any]]:
+        # TODO: Implement Matrix get_channel_history
+        print(f"Matrix: Getting channel history for {channel} (latest: {latest}, inclusive: {inclusive}, limit: {limit})")
+        return []

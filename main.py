@@ -11,18 +11,26 @@ from slack_bolt.adapter.socket_mode import SocketModeHandler
 from jenkins import Jenkins, JenkinsException
 
 from collections import OrderedDict
-from chat_platform import SlackPlatform
+from chat_platform import SlackPlatform, MatrixPlatform
 
 # just globally set this
 logging.basicConfig(level=logging.INFO)
 
 
-# initialize Slack, and Jenkins
-slack_bot_token = os.getenv("SLACK_BOT_TOKEN")
-if not slack_bot_token:
-    raise ValueError("SLACK_BOT_TOKEN must be set")
+# initialize Chat Platform and Jenkins
+chat_platform_type = os.getenv("CHAT_PLATFORM", "slack").lower()
 
-chat_platform = SlackPlatform(slack_bot_token)
+if chat_platform_type == "matrix":
+    homeserver_url = os.getenv("MATRIX_HOMESERVER_URL")
+    access_token = os.getenv("MATRIX_ACCESS_TOKEN")
+    if not homeserver_url or not access_token:
+        raise ValueError("MATRIX_HOMESERVER_URL and MATRIX_ACCESS_TOKEN must be set when CHAT_PLATFORM=matrix")
+    chat_platform = MatrixPlatform(homeserver_url, access_token)
+else:
+    slack_bot_token = os.getenv("SLACK_BOT_TOKEN")
+    if not slack_bot_token:
+        raise ValueError("SLACK_BOT_TOKEN must be set when CHAT_PLATFORM=slack")
+    chat_platform = SlackPlatform(slack_bot_token)
 
 jenkins_server = Jenkins(url=os.environ["JENKINS_URL"],
                          token=os.environ["JENKINS_TOKEN"])
@@ -364,7 +372,10 @@ def strip_userid(msg: str):
 
 
 if __name__ == "__main__":
-    slack_app = chat_platform.slack_app
-    handler = SocketModeHandler(slack_app, os.environ["SLACK_APP_TOKEN"])
-    handler.app.event("app_mention")(handle_app_mention_events)
-    handler.start()
+    if isinstance(chat_platform, SlackPlatform):
+        slack_app = chat_platform.slack_app
+        handler = SocketModeHandler(slack_app, os.environ["SLACK_APP_TOKEN"])
+        handler.app.event("app_mention")(handle_app_mention_events)
+        handler.start()
+    else:
+        print("Running in Matrix mode.  No event handler needed.")
