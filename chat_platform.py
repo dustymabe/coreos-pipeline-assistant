@@ -3,6 +3,8 @@ from typing import Optional, List, Dict, Any
 from slack_bolt import App
 import os
 import logging
+from nio import AsyncClient
+import asyncio # Import asyncio
 
 class ChatPlatform(ABC):
     @abstractmethod
@@ -36,7 +38,7 @@ class SlackPlatform(ChatPlatform):
     def add_reaction(self, channel: str, name: str, timestamp: str):
         self.slack_app.client.reactions_add(channel=channel, name=name, timestamp=timestamp)
 
-    def remove_reaction(self, channel: str, name: name, timestamp: str):
+    def remove_reaction(self, channel: str, name: str, timestamp: str):
         self.slack_app.client.reactions_remove(channel=channel, name=name, timestamp=timestamp)
 
     def get_message(self, channel: str, timestamp: str) -> Dict[str, Any]:
@@ -62,44 +64,56 @@ class MatrixPlatform(ChatPlatform):
     def __init__(self, homeserver_url: str, access_token: str):
         self.homeserver_url = homeserver_url
         self.access_token = access_token
-        # TODO: Initialize Matrix client here
+        self.client = AsyncClient(homeserver_url, access_token)
 
-    def send_message(self, channel: str, text: str, thread_ts: Optional[str] = None):
+    async def send_message(self, channel: str, text: str, thread_ts: Optional[str] = None):
         try:
-            # TODO: Implement Matrix send_message
-            print(f"Matrix: Sending message to {channel}: {text} (thread_ts: {thread_ts})")
+            # Matrix doesn't have direct thread_ts like Slack, typically replies are used
+            # For now, we'll just send a regular message
+            response = await self.client.room_send(
+                room_id=channel,
+                message_type="m.room.message",
+                content={
+                    "msgtype": "m.text",
+                    "body": text,
+                },
+            )
+            # TODO: Handle response (e.g., check for errors)
         except Exception as e:
             logging.exception("Error sending Matrix message:")
-        pass
 
-    def add_reaction(self, channel: str, name: str, timestamp: str):
+    async def add_reaction(self, channel: str, name: str, timestamp: str):
         try:
-            # TODO: Implement Matrix add_reaction
+            # In Matrix, reactions are typically applied to event IDs, not timestamps
+            # We'll need to figure out the event ID from the timestamp, which is complex.
+            # For now, just a placeholder
             print(f"Matrix: Adding reaction {name} to {channel} at {timestamp}")
         except Exception as e:
             logging.exception("Error adding Matrix reaction:")
-        pass
 
-    def remove_reaction(self, channel: str, name: str, timestamp: str):
+    async def remove_reaction(self, channel: str, name: str, timestamp: str):
         try:
-            # TODO: Implement Matrix remove_reaction
+            # Similar to add_reaction, requires event ID
             print(f"Matrix: Removing reaction {name} from {channel} at {timestamp}")
         except Exception as e:
             logging.exception("Error removing Matrix reaction:")
-        pass
 
-    def get_message(self, channel: str, timestamp: str) -> Dict[str, Any]:
+    async def get_message(self, channel: str, timestamp: str) -> Dict[str, Any]:
         try:
-            # TODO: Implement Matrix get_message
+            # Getting a specific message by timestamp is not straightforward in Matrix via client.sync()
+            # It would involve iterating through historical events or using a dedicated API if available.
+            # For now, return an empty dict as a placeholder.
             print(f"Matrix: Getting message from {channel} at {timestamp}")
             return {}
         except Exception as e:
             logging.exception("Error getting Matrix message:")
             return {}
 
-    def get_channel_history(self, channel: str, latest: Optional[str] = None, inclusive: bool = False, limit: int = 1) -> List[Dict[str, Any]]:
+    async def get_channel_history(self, channel: str, latest: Optional[str] = None, inclusive: bool = False, limit: int = 1) -> List[Dict[str, Any]]:
         try:
-            # TODO: Implement Matrix get_channel_history
+            # Getting channel history involves syncing and processing events.
+            # This is a complex operation with matrix_nio and is outside the scope of simple placeholders.
+            # For now, return an empty list as a placeholder.
             print(f"Matrix: Getting channel history for {channel} (latest: {latest}, inclusive: {inclusive}, limit: {limit})")
             return []
         except Exception as e:
