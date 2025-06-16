@@ -326,9 +326,11 @@ def handle_app_mention_events(body, logger, say):
     event = body["event"]
     channel = event["channel"]
 
-    chat_platform.add_reaction(channel=channel, name='hourglass_flowing_sand', timestamp=event["ts"])
-
-    pre_prompt = f"You were just pinged in channel {channel} by a user "
+    if isinstance(chat_platform, SlackPlatform):
+        chat_platform.add_reaction(channel=channel, name='hourglass_flowing_sand', timestamp=event["ts"])
+        pre_prompt = f"You were just pinged in channel {channel} by a user "
+    else:
+        pre_prompt = f"You were just pinged in Matrix channel {channel} by a user "
 
     thread_ts = event.get("thread_ts")
     if thread_ts:
@@ -358,7 +360,8 @@ def handle_app_mention_events(body, logger, say):
 
 
     chat_platform.send_message(text=response.output, channel=channel, thread_ts=thread_ts or event["ts"])
-    chat_platform.remove_reaction(channel=channel, name='hourglass_flowing_sand', timestamp=event["ts"])
+    if isinstance(chat_platform, SlackPlatform):
+        chat_platform.remove_reaction(channel=channel, name='hourglass_flowing_sand', timestamp=event["ts"])
 
 
 # Convert '<@USERID> msg' to 'msg' (Slack) or '@user:matrix.org msg' to 'msg' (Matrix)
@@ -372,7 +375,10 @@ def strip_userid(msg: str):
 
 
 if __name__ == "__main__":
-    slack_app = chat_platform.slack_app
-    handler = SocketModeHandler(slack_app, os.environ["SLACK_APP_TOKEN"])
-    handler.app.event("app_mention")(handle_app_mention_events)
-    handler.start()
+    if isinstance(chat_platform, SlackPlatform):
+        slack_app = chat_platform.slack_app
+        handler = SocketModeHandler(slack_app, os.environ["SLACK_APP_TOKEN"])
+        handler.app.event("app_mention")(handle_app_mention_events)
+        handler.start()
+    else:
+        print("Running in Matrix mode.  No event handler needed.")
