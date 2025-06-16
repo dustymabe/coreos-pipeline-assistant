@@ -5,20 +5,24 @@ from enum import Enum
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pydantic_ai import Agent, agent
-from slack_bolt import App
-from slack_bolt.adapter.socket_mode import SocketModeHandler
 import logging
 
+from slack_bolt.adapter.socket_mode import SocketModeHandler
 from jenkins import Jenkins, JenkinsException
 
 from collections import OrderedDict
+from chat_platform import SlackPlatform
 
 # just globally set this
 logging.basicConfig(level=logging.INFO)
 
 
 # initialize Slack, and Jenkins
-slack_app = App(token=os.getenv("SLACK_BOT_TOKEN"))
+slack_bot_token = os.getenv("SLACK_BOT_TOKEN")
+if not slack_bot_token:
+    raise ValueError("SLACK_BOT_TOKEN must be set")
+
+chat_platform = SlackPlatform(slack_bot_token)
 
 jenkins_server = Jenkins(url=os.environ["JENKINS_URL"],
                          token=os.environ["JENKINS_TOKEN"])
@@ -124,20 +128,11 @@ def get_associated_jenkins_build(channel: str, thread_ts: Optional[str] = None) 
 
     if thread_ts:
         # we were mentioned in a thread; get the parent of the thread
-        result = slack_app.client.conversations_history(
-            channel=channel,
-            latest=thread_ts,
-            inclusive=True,
-            limit=1
-        )
-        message = result["messages"][0]
+        message = chat_platform.get_message(channel=channel, timestamp=thread_ts)
     else:
         # get the latest message in the channel
-        result = slack_app.client.conversations_history(
-            channel=channel,
-            limit=1
-        )
-        message = result["messages"][0]
+        messages = chat_platform.get_channel_history(channel=channel, limit=1)
+        message = messages[0]
 
     text = message["text"]
     # Updated regex to capture stream, architectures, and version
@@ -318,13 +313,12 @@ def retry_jenkins_build(job_name: str, build_number: int) -> str:
 
 
 
-@slack_app.event("app_mention")
 def handle_app_mention_events(body, logger, say):
     logger.info(body)
     event = body["event"]
     channel = event["channel"]
 
-    slack_app.client.reactions_add(channel=channel, name='hourglass_flowing_sand', timestamp=event["ts"])
+    chat_platform.add_reaction(channel=channel, name='hourglass_flowing_sand', timestamp=event["ts"])
 
     pre_prompt = f"You were just pinged in channel {channel} by a user "
 
@@ -355,8 +349,8 @@ def handle_app_mention_events(body, logger, say):
     message_history.append(response.new_messages())
 
 
-    say(text=response.output, thread_ts=thread_ts or event["ts"])
-    slack_app.client.reactions_remove(channel=channel, name='hourglass_flowing_sand', timestamp=event["ts"])
+    chat_platform.send_message(text=response.output, channel=channel, thread_ts=thread_ts or event["ts"])
+    chat_platform.remove_reaction(channel=channel, name='hourglass_flowing_sand', timestamp=event["ts"])
 
 
 # Convert '<@USERID> msg' to 'msg'
@@ -370,4 +364,7 @@ def strip_userid(msg: str):
 
 
 if __name__ == "__main__":
-    SocketModeHandler(slack_app, os.environ["SLACK_APP_TOKEN"]).start()
+    slack_app = chat_platform.slack_app
+    handler = SocketModeHandler(slack_app, os.environ["SLACK_APP_TOKEN"])
+    handler.app.event("app_mention")(handle_app_mention_events)
+    handler.start()
