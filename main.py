@@ -319,20 +319,31 @@ def retry_jenkins_build(job_name: str, build_number: int) -> str:
 
 
 @slack_app.event("app_mention")
- def handle_app_mention_events(body, logger, say):
+def handle_app_mention_events(body, logger, say):
     logger.info(body)
     event = body["event"]
     channel = event["channel"]
 
     slack_app.client.reactions_add(channel=channel, name='hourglass_flowing_sand', timestamp=event["ts"])
 
+    pre_prompt = f"You were just pinged in channel {channel} by a user "
+
     thread_ts = event.get("thread_ts")
+    if thread_ts:
+        # presumably we should just make a context object or closure instead
+        # from our tools but let's see how well this works...
+        pre_prompt += f" from within a thread with thread_ts={thread_ts}. "
+    else:
+        pre_prompt += " from outside of a thread. "
+    pre_prompt += "Here is the user's message: "
 
     user_prompt = strip_userid(event['text'])
     if user_prompt == "":
         logger.info("got empty command; ignoring...")
         return
 
+    # If in a thread, manage message history using the global thread_chats dict.
+    # Otherwise, use empty message history for single messages.
     if thread_ts:
         if thread_ts not in thread_chats:
             thread_chats[thread_ts] = []
@@ -340,12 +351,11 @@ def retry_jenkins_build(job_name: str, build_number: int) -> str:
     else:
         message_history = []
 
-    message_history.append(user_prompt)
-    response = agent.run(message_history)
-    message_history.append(response)
+    response = agent.run(pre_prompt + user_prompt, message_history=message_history)
+    message_history.append(response.new_messages())
 
 
-    say(text=response, thread_ts=thread_ts or event["ts"])
+    say(text=response.output, thread_ts=thread_ts or event["ts"])
     slack_app.client.reactions_remove(channel=channel, name='hourglass_flowing_sand', timestamp=event["ts"])
 
 
