@@ -22,11 +22,13 @@ Currently, it can:
     ```
 
 2.  **Set environment variables:**
-    *   `SLACK_BOT_TOKEN`: Your Slack bot token.
-    *   `SLACK_APP_TOKEN`: Your Slack app token.
+    *   `MATRIX_HOMESERVER_URL`: Your homeserver (i.e.  https://matrix.org)
+    *   `MATRIX_ACCESS_TOKEN`: Your device access token
+    *   `MATRIX_ROOM`: Your room FQDN (i.e. `#tmp-coreos-pipeline-assistant-testing:matrix.org`)
     *   `JENKINS_URL`: The URL of your Jenkins server.
     *   `JENKINS_TOKEN`: Your Jenkins token (often an API token).
-    *   `GEMINI_API_KEY`: Your Gemini API key.
+    *   `OPENROUTER_API_KEY`: Your OpenRouter access key
+    *   `CHAT_PLATFORM=matrix`: set to matrix for now
 
 ## Usage
 
@@ -51,25 +53,16 @@ Currently, it can:
 2.  **Run the container:**
     You can pass the environment variables directly with the `-e` flag, or you can use a `.env` file.
 
-    **Using the `-e` flag:**
-    ```
-    podman run -it --rm \
-      -e SLACK_BOT_TOKEN='your_bot_token' \
-      -e SLACK_APP_TOKEN='your_app_token' \
-      -e JENKINS_URL='https://your.jenkins.url' \
-      -e JENKINS_TOKEN='your_jenkins_token' \
-      -e GEMINI_API_KEY='your_gemini_api_key' \
-      coreos-pipeline-assistant
-    ```
-
     **Using a `.env` file:**
     Create a file named `.env` with the following content:
     ```
-    SLACK_BOT_TOKEN='your_bot_token'
-    SLACK_APP_TOKEN='your_app_token'
-    JENKINS_URL='https://your.jenkins.url'
-    JENKINS_TOKEN='your_jenkins_token'
-    GEMINI_API_KEY='your_gemini_api_key'
+    MATRIX_HOMESERVER_URL=https://matrix.org
+    MATRIX_ACCESS_TOKEN=your_app_token
+    MATRIX_ROOM=your_room_fqdn
+    JENKINS_URL=https://your.jenkins.url
+    JENKINS_TOKEN=your_jenkins_token
+    OPENROUTER_API_KEY=your_api_key
+    CHAT_PLATFORM=matrix
     ```
     Then run the container with the `--env-file` flag:
     ```

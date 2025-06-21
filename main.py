@@ -13,24 +13,15 @@ from jenkins import Jenkins, JenkinsException
 from collections import OrderedDict
 from chat_platform import SlackPlatform, MatrixPlatform
 
+from nio import RoomMessage
+import asyncio
+import nest_asyncio
+
+
 # just globally set this
 logging.basicConfig(level=logging.INFO)
 
 
-# initialize Chat Platform and Jenkins
-chat_platform_type = os.getenv("CHAT_PLATFORM", "slack").lower()
-
-if chat_platform_type == "matrix":
-    homeserver_url = os.getenv("MATRIX_HOMESERVER_URL")
-    access_token = os.getenv("MATRIX_ACCESS_TOKEN")
-    if not homeserver_url or not access_token:
-        raise ValueError("MATRIX_HOMESERVER_URL and MATRIX_ACCESS_TOKEN must be set when CHAT_PLATFORM=matrix")
-    chat_platform = MatrixPlatform(homeserver_url, access_token)
-else:
-    slack_bot_token = os.getenv("SLACK_BOT_TOKEN")
-    if not slack_bot_token:
-        raise ValueError("SLACK_BOT_TOKEN must be set when CHAT_PLATFORM=slack")
-    chat_platform = SlackPlatform(slack_bot_token)
 
 jenkins_server = Jenkins(url=os.environ["JENKINS_URL"],
                          token=os.environ["JENKINS_TOKEN"])
@@ -57,7 +48,7 @@ succinct.
 from pydantic_ai.models.openai import OpenAIModel
 from pydantic_ai.providers.openrouter import OpenRouterProvider
 model = OpenAIModel(
-    'gemini-2.5-flash-preview-05-20',
+    'google/gemini-2.5-flash-preview-05-20',
     provider=OpenRouterProvider(api_key=os.environ.get('OPENROUTER_API_KEY'))
 )
 agent = Agent(
@@ -119,8 +110,8 @@ class StreamBuild:
     status: Optional[StreamStatus] = None
 
 
-@agent.tool
-def get_associated_jenkins_build(channel: str, thread_ts: Optional[str] = None) -> Build:
+@agent.tool_plain
+def get_associated_jenkins_build(channel: str, thread_id: Optional[str] = None) -> Build:
     """Gets the Jenkins build that is best associated with a user query.
 
     Args:
@@ -132,17 +123,21 @@ def get_associated_jenkins_build(channel: str, thread_ts: Optional[str] = None) 
         the job name, the build number, build result, build description, and
         build timestamp.
     """
-    logging.info(f"called for thread_ts={thread_ts}")
+    logging.info(f"get_associated_jenkins_build called for thread_id={thread_id}")
 
-    if thread_ts:
+    if thread_id:
         # we were mentioned in a thread; get the parent of the thread
-        message = chat_platform.get_message(channel=channel, timestamp=thread_ts)
+#       message = chat_platform.get_message(channel=channel, thread_id=thread_id)
+        message = chat_platform.current_threadroot_message
     else:
-        # get the latest message in the channel
-        messages = chat_platform.get_channel_history(channel=channel, limit=1)
-        message = messages[0]
+        raise Exception("no thread id")
+#   else:
+#       # get the latest message in the channel
+#       messages = chat_platform.get_channel_history(channel=channel, limit=1)
+#       message = messages[0]
 
-    text = message["text"]
+    text = message
+    logging.info(f"message in get_associated_jenkins_build: {message}")
     # Updated regex to capture stream, architectures, and version
     match = re.search(r"https://(.*?)/job/(.*?)/(.*?)/", text)
     if not match:
@@ -194,7 +189,7 @@ def get_associated_jenkins_build(channel: str, thread_ts: Optional[str] = None) 
     )
 
 
-@agent.tool
+@agent.tool_plain
 def get_jenkins_build_logs(job_name: str, build_number: int) -> str:
     """Gets the Jenkins logs for a given Jenkins build.
 
@@ -205,7 +200,7 @@ def get_jenkins_build_logs(job_name: str, build_number: int) -> str:
     Returns:
         The logs for the specified Jenkins build.
     """
-    logging.info(f"called for job_name={job_name} build_number={build_number}")
+    logging.info(f"get_jenkins_build_logs called for job_name={job_name} build_number={build_number}")
     try:
         return jenkins_server.get_build_console_output(job_name, build_number)
     except JenkinsException as e:
@@ -213,7 +208,7 @@ def get_jenkins_build_logs(job_name: str, build_number: int) -> str:
         return f"Error fetching Jenkins logs: {e}"
 
 
-@agent.tool
+@agent.tool_plain
 def get_list_of_builds_for_job(job_name: str) -> List[Build]:
     """Gets the list of builds for a given Jenkins job.
 
@@ -223,7 +218,7 @@ def get_list_of_builds_for_job(job_name: str) -> List[Build]:
     Returns:
         A list of Build objects for the specified Jenkins job.
     """
-    logging.info(f"called for job_name={job_name}")
+    logging.info(f"get_list_of_builds_for_job called for job_name={job_name}")
     builds = []
     try:
         job_info = jenkins_server.get_job_info(job_name, depth=1)
@@ -258,14 +253,14 @@ def get_list_of_builds_for_job(job_name: str) -> List[Build]:
         return []
 
 
-@agent.tool
+@agent.tool_plain
 def get_pipeline_status() -> OrderedDict[str, StreamBuild]:
     """Gets the status of the Jenkins pipeline.
 
     Returns:
         A dictionary mapping the stream to a StreamBuild object.
     """
-    logging.info("called")
+    logging.info("get_pipeline_status called")
     builds = get_list_of_builds_for_job("release")
     status: OrderedDict[str, StreamBuild] = {}
     for build in builds:
@@ -305,7 +300,7 @@ def get_pipeline_status() -> OrderedDict[str, StreamBuild]:
     return sorted_status
 
 
-@agent.tool
+@agent.tool_plain
 def retry_jenkins_build(job_name: str, build_number: int) -> str:
     """Retries a specific Jenkins build.
 
@@ -320,49 +315,54 @@ def retry_jenkins_build(job_name: str, build_number: int) -> str:
     return jenkins_server.retry_build(job_name, build_number)
 
 
+#   if isinstance(chat_platform, SlackPlatform):
+#       chat_platform.add_reaction(channel=channel, name='hourglass_flowing_sand', timestamp=event["ts"])
 
 def handle_app_mention_events(body, logger, say):
     logger.info(body)
-    event = body["event"]
+    event_id = body["event"]
     channel = event["channel"]
 
-    if isinstance(chat_platform, SlackPlatform):
-        chat_platform.add_reaction(channel=channel, name='hourglass_flowing_sand', timestamp=event["ts"])
-        pre_prompt = f"You were just pinged in channel {channel} by a user "
-    else:
-        pre_prompt = f"You were just pinged in Matrix channel {channel} by a user "
-
-    thread_ts = event.get("thread_ts")
-    if thread_ts:
+def process_message(channel, event_id, is_thread=False, text=''):
+    thread_id = None
+    pre_prompt = f"You were just pinged in channel {channel} by a user "
+    if is_thread:
+        thread_id = event_id
         # presumably we should just make a context object or closure instead
         # from our tools but let's see how well this works...
-        pre_prompt += f" from within a thread with thread_ts={thread_ts}. "
+        pre_prompt += f" from within a thread with thread_id={thread_id}. "
     else:
         pre_prompt += " from outside of a thread. "
     pre_prompt += "Here is the user's message: "
 
-    user_prompt = strip_userid(event['text'])
+    user_prompt = strip_userid(text)
     if user_prompt == "":
         logger.info("got empty command; ignoring...")
         return
 
     # If in a thread, manage message history using the global thread_chats dict.
     # Otherwise, use empty message history for single messages.
-    if thread_ts:
-        if thread_ts not in thread_chats:
-            thread_chats[thread_ts] = []
-        message_history = thread_chats[thread_ts]
+    if thread_id:
+        if thread_id not in thread_chats:
+            thread_chats[thread_id] = []
+        message_history = thread_chats[thread_id]
     else:
         message_history = []
 
-    response = agent.run(pre_prompt + user_prompt, message_history=message_history)
-    message_history.append(response.new_messages())
+    print(f"message_history is: {message_history}")
+    print(f"before running AImessage_history is: {message_history}")
+    result = agent.run_sync(pre_prompt + user_prompt, message_history=message_history)
+    message_history.extend(result.new_messages())
+   #result = dict()
+   #result["output"] = 'testoutput'
+   #from types import SimpleNamespace
+   #return SimpleNamespace(**result)
+    return result
 
+#   chat_platform.send_message(text=response.output, channel=channel, thread_id=thread_id or event_id)
 
-    chat_platform.send_message(text=response.output, channel=channel, thread_ts=thread_ts or event["ts"])
-    if isinstance(chat_platform, SlackPlatform):
-        chat_platform.remove_reaction(channel=channel, name='hourglass_flowing_sand', timestamp=event["ts"])
-
+####if isinstance(chat_platform, SlackPlatform):
+####    chat_platform.remove_reaction(channel=channel, name='hourglass_flowing_sand', timestamp=event["ts"])
 
 # Convert '<@USERID> msg' to 'msg' (Slack) or '@user:matrix.org msg' to 'msg' (Matrix)
 def strip_userid(msg: str):
@@ -375,10 +375,36 @@ def strip_userid(msg: str):
 
 
 if __name__ == "__main__":
+    nest_asyncio.apply() # Apply nest_asyncio to allow nested event loops
+
+    # initialize Chat Platform and Jenkins
+    chat_platform_type = os.getenv("CHAT_PLATFORM", "slack").lower()
+
+    if chat_platform_type == "matrix":
+        homeserver_url = os.getenv("MATRIX_HOMESERVER_URL")
+        access_token = os.getenv("MATRIX_ACCESS_TOKEN")
+        matrix_room = os.getenv("MATRIX_ROOM")
+        if not homeserver_url or not access_token or not matrix_room:
+            raise ValueError("MATRIX_HOMESERVER_URL and MATRIX_ACCESS_TOKEN must be set when CHAT_PLATFORM=matrix")
+        chat_platform = MatrixPlatform(homeserver_url, access_token,
+                matrix_room, process_message_func=process_message)
+    else:
+        slack_bot_token = os.getenv("SLACK_BOT_TOKEN")
+        if not slack_bot_token:
+            raise ValueError("SLACK_BOT_TOKEN must be set when CHAT_PLATFORM=slack")
+        chat_platform = SlackPlatform(slack_bot_token)
     if isinstance(chat_platform, SlackPlatform):
+        print("Running in Slack mode.")
         slack_app = chat_platform.slack_app
         handler = SocketModeHandler(slack_app, os.environ["SLACK_APP_TOKEN"])
         handler.app.event("app_mention")(handle_app_mention_events)
         handler.start()
     else:
-        print("Running in Matrix mode.  No event handler needed.")
+        print("Running in Matrix mode.")
+        # Register a callback to be called when we receive new messages
+        chat_platform.client.add_event_callback(
+            chat_platform.monitor_messages, RoomMessage)
+        try:
+            asyncio.run(chat_platform.client.sync_forever(full_state=True))
+        finally:
+            asyncio.run(chat_platform.client.close())
